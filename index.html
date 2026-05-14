@@ -182,7 +182,7 @@
             // 狀態更新
             needNewRecognition = true;
             topZone.classList.remove('disabled');
-            topText.innerHTML = "點擊上方<br>辨識並朗讀";
+            topText.innerHTML = "辨識與朗讀";
             
             speak('照片已擷取，請點擊上方進行辨識');
         });
@@ -231,7 +231,7 @@
                 lastResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '無法識別內容';
                 
                 needNewRecognition = false; // 標記為已辨識
-                topText.innerHTML = "點擊上方<br>再次朗讀結果";
+                topText.innerHTML = "再次朗讀結果";
                 speak(lastResponse);
 
             } catch (err) {
