@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>視覺助理</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -10,136 +10,136 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #1a1a2e;
             color: #eee;
-            min-height: 100vh;
+            height: 100vh;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            padding: 20px;
-        }
-        h1 { margin-bottom: 20px; color: #00d4ff; font-size: 24px; }
-        
-        .container {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            max-width: 340px; 
-            width: 100%;
-            align-items: center;
+            overflow: hidden; /* 防止滾動 */
         }
 
-        .video-container {
-            background: #16213e;
-            border-radius: 12px;
-            padding: 10px;
-            width: 200px;      
-            height: 150px;     
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-        }
-
-        video, canvas {
-            width: 100%;
-            height: 100%;
-            object-fit: cover; 
-            border-radius: 8px;
-            background: #0f0f23;
-        }
-
-        .controls {
-            display: flex;
-            flex-direction: column; 
-            gap: 12px;
-            margin: 10px 0;
-            width: 100%;
-        }
-
-        button {
-            padding: 20px 20px; 
-            border: none;
-            border-radius: 12px;
-            cursor: pointer;
-            font-size: 24px;    
-            font-weight: bold;
-            transition: all 0.2s;
-            width: 100%;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        }
-
-        #captureBtn { background: #00d4ff; color: #1a1a2e; }
-        #askBtn { background: #7c3aed; color: white; }
-        #speakBtn { background: #0ea5e9; color: white; }
-
-        button:hover { transform: scale(1.02); }
-        button:active { transform: scale(0.98); }
-        button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-        
+        /* 頂部 API Key 區塊 (縮小並置頂) */
         .api-key-container {
-            width: 100%;
-            margin-top: 20px;
-            padding: 15px;
-            background: #16213e;
-            border-radius: 12px;
-            font-size: 14px;
-        }
-        .api-key-container label {
-            display: block;
-            margin-bottom: 8px;
-            color: #00d4ff;
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background: #0f0f23;
+            gap: 10px;
+            z-index: 10;
         }
         .api-key-container input {
-            width: 100%;
-            padding: 10px;
+            flex: 1;
+            padding: 8px;
             border-radius: 6px;
-            border: none;
-            background: #0f0f23;
+            border: 1px solid #444;
+            background: #16213e;
             color: white;
         }
         .get-api-key-btn {
-            display: inline-block;
-            margin-top: 10px;
-            color: #4285f4;
+            color: #00d4ff;
             text-decoration: none;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        /* 互動區域共用樣式 */
+        .action-zone {
+            flex: 1; /* 自動填滿剩餘空間 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            transition: opacity 0.2s;
+            text-align: center;
+            line-height: 1.4;
+        }
+        .action-zone:active { opacity: 0.7; }
+        .action-zone.disabled { opacity: 0.5; pointer-events: none; }
+
+        /* 上方區域：辨識與朗讀 */
+        .top-zone {
+            background: #7c3aed;
+            color: white;
+        }
+
+        /* 中間：照片視窗 */
+        .video-container {
+            height: 35vh; /* 佔據畫面 35% 高度 */
+            background: #000;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 5;
+        }
+        video, canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* 確保畫面完整顯示不被裁切 */
+        }
+        /* 拍照時的閃光效果 */
+        .flash {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.1s ease-out;
+        }
+        .flash.active { opacity: 1; transition: none; }
+
+        /* 下方區域：拍照 */
+        .bottom-zone {
+            background: #00d4ff;
+            color: #1a1a2e;
         }
     </style>
 </head>
 <body>
     <h1>視覺助理</h1>
-    
-    <div class="container">
-        <div class="video-container">
-            <video id="video" autoplay playsinline></video>
-            <canvas id="canvas" style="display:none;"></canvas>
-        </div>
+	
+    <!-- API Key 輸入區 -->
+    <div class="api-key-container">
+        <input type="password" id="apiKey" placeholder="請在此輸入 Gemini API Key">
+        <a href="https://aistudio.google.com/api-keys" target="_blank" class="get-api-key-btn">獲取 Key</a>	
+    </div>
 
-        <div class="controls">
-            <button id="captureBtn">拍照</button>
-            <button id="askBtn" disabled>辨識</button>
-            <button id="speakBtn" disabled>🔊 朗讀</button>
-        </div>
+    <!-- 上方區域：辨識與朗讀 -->
+    <div id="topZone" class="action-zone top-zone disabled">
+        <span id="topText">辨識並朗讀</span>
+    </div>
 
-        <div class="api-key-container">
-            <label for="apiKey">Gemini API Key</label>
-            <input type="password" id="apiKey" placeholder="在此輸入 Key">
-            <a href="https://aistudio.google.com/api-keys" target="_blank" class="get-api-key-btn">點此獲取 Key</a>	
-        </div>
+    <!-- 中間區域：照片視窗 -->
+    <div class="video-container" id="videoContainer">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <div id="flash" class="flash"></div>
+    </div>
+
+    <!-- 下方區域：拍照 -->
+    <div id="bottomZone" class="action-zone bottom-zone">
+        <span id="bottomText">拍 照</span>
     </div>
 
     <script>
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        const captureBtn = document.getElementById('captureBtn');
-        const askBtn = document.getElementById('askBtn');
-        const speakBtn = document.getElementById('speakBtn');
+        const flash = document.getElementById('flash');
+        const topZone = document.getElementById('topZone');
+        const topText = document.getElementById('topText');
+        const bottomZone = document.getElementById('bottomZone');
+        const bottomText = document.getElementById('bottomText');
         const apiKeyInput = document.getElementById('apiKey');
 
         let capturedImage = null;
         let lastResponse = '';
         let apiKey = '';
-        const modelName = 'gemini-2.5-flash'; // 修正為目前可用的正確模型名稱
+        let needNewRecognition = false; // 判斷是否需要重新辨識
+        const modelName = 'gemini-2.5-flash';
 
+        // 語音合成
         function speak(text) {
             if (!text) return;
             window.speechSynthesis.cancel();
@@ -148,44 +148,67 @@
             window.speechSynthesis.speak(utterance);
         }
 
+        // 初始化相機
         async function initWebcam() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: 'environment' } 
                 });
                 video.srcObject = stream;
-				speak('視覺助理已啟動');
+                speak('視覺助理已啟動，請點擊畫面下方拍照');
             } catch (err) {
-				speak('相機啟動失敗，請檢查權限');
+                speak('相機啟動失敗，請檢查權限');
+                bottomText.innerHTML = "相機啟動失敗";
             }
         }
 
-        captureBtn.addEventListener('click', () => {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0);
-            capturedImage = canvas.toDataURL('image/jpeg', 0.85);
-            askBtn.disabled = false;
-            speak('照片已擷取，請按辨識');
-        });
-
+        // 監聽 API Key 輸入
         apiKeyInput.addEventListener('input', (e) => {
             apiKey = e.target.value.trim();
         });
 
-        async function askGemini() {
+        // 下方區域點擊：拍照
+        bottomZone.addEventListener('click', () => {
+            // 觸發閃光燈效果
+            flash.classList.add('active');
+            setTimeout(() => flash.classList.remove('active'), 100);
+
+            // 繪製畫面到 canvas 並轉為圖片
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            capturedImage = canvas.toDataURL('image/jpeg', 0.85);
+            
+            // 狀態更新
+            needNewRecognition = true;
+            topZone.classList.remove('disabled');
+            topText.innerHTML = "點擊上方<br>辨識並朗讀";
+            
+            speak('照片已擷取，請點擊上方進行辨識');
+        });
+
+        // 上方區域點擊：辨識與朗讀
+        topZone.addEventListener('click', async () => {
             if (!apiKey) {
-                speak('請先輸入 API 密鑰');
+                speak('請先在最上方輸入 API 密鑰');
                 return;
             }
             if (!capturedImage) {
-                speak('請先拍照');
+                speak('請先點擊下方拍照');
+                return;
+            }
+
+            // 如果已經辨識過同一張照片，則直接重新朗讀結果
+            if (!needNewRecognition && lastResponse) {
+                speak(lastResponse);
                 return;
             }
             
-            askBtn.disabled = true;
-            captureBtn.disabled = true;
-            speak('正在分析');
+            // 鎖定畫面防止重複點擊
+            topZone.classList.add('disabled');
+            bottomZone.classList.add('disabled');
+            topText.innerHTML = "正在分析中...<br>請稍候";
+            speak('正在分析畫面');
 
             const base64Data = capturedImage.split(',')[1];
             const payload = {
@@ -207,19 +230,21 @@
                 const data = await response.json();
                 lastResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '無法識別內容';
                 
+                needNewRecognition = false; // 標記為已辨識
+                topText.innerHTML = "點擊上方<br>再次朗讀結果";
                 speak(lastResponse);
-                speakBtn.disabled = false;
 
             } catch (err) {
-                speak('辨識過程發生錯誤');
+                speak('辨識過程發生錯誤，請檢查網路或 API Key');
+                topText.innerHTML = "辨識失敗<br>請重試";
             } finally {
-                askBtn.disabled = false;
-                captureBtn.disabled = false;
+                // 解除鎖定
+                topZone.classList.remove('disabled');
+                bottomZone.classList.remove('disabled');
             }
-        }
+        });
 
-        askBtn.addEventListener('click', askGemini);
-        speakBtn.addEventListener('click', () => speak(lastResponse));
+        // 啟動相機
         initWebcam();
     </script>
 </body>
