@@ -1,3 +1,5 @@
+--- START OF FILE index.html ---
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -27,13 +29,12 @@
             align-items: center;
         }
 
-        /* 這裡修改視窗大小 */
         .video-container {
             background: #16213e;
             border-radius: 12px;
             padding: 10px;
-            width: 200px;      /* 縮小寬度至 200px，手機上也會看起來很小 */
-            height: 150px;     /* 固定高度 */
+            width: 200px;      
+            height: 150px;     
             display: flex;
             align-items: center;
             justify-content: center;
@@ -44,7 +45,7 @@
         video, canvas {
             width: 100%;
             height: 100%;
-            object-fit: cover; /* 確保影像填滿且不變形 */
+            object-fit: cover; 
             border-radius: 8px;
             background: #0f0f23;
         }
@@ -57,7 +58,6 @@
             width: 100%;
         }
 
-        /* 按鍵維持大尺寸，方便按壓 */
         button {
             padding: 20px 20px; 
             border: none;
@@ -78,18 +78,6 @@
         button:active { transform: scale(0.98); }
         button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         
-        #status {
-            padding: 10px;
-            border-radius: 8px;
-            text-align: center;
-            font-size: 16px;
-            width: 100%;
-            min-height: 44px;
-        }
-        .loading { background: #fbbf24; color: #1a1a2e; }
-        .error { background: #ef4444; color: white; }
-        .success { background: #22c55e; color: white; }
-
         .api-key-container {
             width: 100%;
             margin-top: 20px;
@@ -123,13 +111,10 @@
     <h1>視覺助理</h1>
     
     <div class="container">
-        <!-- 縮小後的視窗 -->
         <div class="video-container">
             <video id="video" autoplay playsinline></video>
             <canvas id="canvas" style="display:none;"></canvas>
         </div>
-
-         <div id="status">請允許相機權限</div>
 
         <div class="controls">
             <button id="captureBtn">拍照</button>
@@ -150,13 +135,12 @@
         const captureBtn = document.getElementById('captureBtn');
         const askBtn = document.getElementById('askBtn');
         const speakBtn = document.getElementById('speakBtn');
-        const status = document.getElementById('status');
         const apiKeyInput = document.getElementById('apiKey');
 
         let capturedImage = null;
         let lastResponse = '';
         let apiKey = '';
-        const modelName = 'gemini-2.5-flash';
+        const modelName = 'gemini-1.5-flash'; // 修正為目前可用的正確模型名稱
 
         function speak(text) {
             if (!text) return;
@@ -172,26 +156,19 @@
                     video: { facingMode: 'environment' } 
                 });
                 video.srcObject = stream;
-                status.textContent = '相機就緒';
 				speak('相機就緒');
-                status.className = 'success';
             } catch (err) {
-                status.textContent = '相機錯誤';
-				speak('相機錯誤');
-                status.className = 'error';
+				speak('相機啟動失敗，請檢查權限');
             }
         }
 
         captureBtn.addEventListener('click', () => {
-            // 保持原始解析度擷取，不影響辨識品質
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             canvas.getContext('2d').drawImage(video, 0, 0);
             capturedImage = canvas.toDataURL('image/jpeg', 0.85);
             askBtn.disabled = false;
-            status.textContent = '已擷取，請按辨識';
-            status.className = 'success';
-            speak('照片已擷取');
+            speak('照片已擷取，請按辨識');
         });
 
         apiKeyInput.addEventListener('input', (e) => {
@@ -199,16 +176,17 @@
         });
 
         async function askGemini() {
-            if (!capturedImage || !apiKey) {
-                status.textContent = !apiKey ? '請輸入 Key' : '請先拍照';
-                status.className = 'error';
+            if (!apiKey) {
+                speak('請先輸入 API 密鑰');
+                return;
+            }
+            if (!capturedImage) {
+                speak('請先拍照');
                 return;
             }
             
             askBtn.disabled = true;
             captureBtn.disabled = true;
-            status.textContent = '分析中...';
-            status.className = 'loading';
             speak('正在分析');
 
             const base64Data = capturedImage.split(',')[1];
@@ -229,17 +207,13 @@
                 });
 
                 const data = await response.json();
-                lastResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '辨識失敗';
+                lastResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '無法識別內容';
                 
-                status.textContent = '辨識完成';
-                status.className = 'success';
                 speak(lastResponse);
                 speakBtn.disabled = false;
 
             } catch (err) {
-                status.textContent = '辨識出錯';
-                status.className = 'error';
-                speak('辨識錯誤');
+                speak('辨識過程發生錯誤');
             } finally {
                 askBtn.disabled = false;
                 captureBtn.disabled = false;
