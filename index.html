@@ -129,7 +129,7 @@
             <canvas id="canvas" style="display:none;"></canvas>
         </div>
 
-        <div id="status">請允許相機權限</div>
+<!--         <div id="status">請允許相機權限</div> -->
 
         <div class="controls">
             <button id="captureBtn">拍照</button>
@@ -239,7 +239,7 @@
             } catch (err) {
                 status.textContent = '辨識出錯';
                 status.className = 'error';
-                speak('發生錯誤');
+                speak('辨識錯誤');
             } finally {
                 askBtn.disabled = false;
                 captureBtn.disabled = false;
