@@ -68,12 +68,14 @@
         let lastResponse = '';
         let apiKey = '';
         let needNewRecognition = false;
+        const fileId = '1j_xerlVByCrLrYVSFnqhzfdwk9x8IqaX';
         const modelName = 'gemini-2.0-flash'; // 請確保模型名稱正確
-
+        const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+        
         // 讀取設定檔
         async function loadConfig() {
             try {
-                const response = await fetch('config.json');
+                const response = await fetch(url);
                 const config = await response.json();
                 apiKey = config.apiKey;
                 topText.innerHTML = "辨識並朗讀";
