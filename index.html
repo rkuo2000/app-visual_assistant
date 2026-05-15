@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>視覺助理</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #fileInput { display: none; }
+
+        .config-bar {
+            background: #0f0f23;
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .load-btn {
+            background: #444;
+            color: #ccc;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .status-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #ff4444;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .status-dot.active { background: #00ff00; }
+
+        .action-zone {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            transition: opacity 0.2s;
+            text-align: center;
+            line-height: 1.4;
+        }
+        .action-zone:active { opacity: 0.7; }
+        .action-zone.disabled { opacity: 0.5; pointer-events: none; }
+
+        .top-zone { background: #7c3aed; color: white; }
+
+        .video-container {
+            height: 40vh;
+            background: #000;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        video, canvas { width: 100%; height: 100%; object-fit: contain; }
+
+        .flash {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: white; opacity: 0; pointer-events: none;
+        }
+        .flash.active { opacity: 1; }
+
+        .bottom-zone { background: #00d4ff; color: #1a1a2e; }
+    </style>
+</head>
+<body>
+    <div class="config-bar">
+        <div style="font-size: 12px;">
+            <span id="statusDot" class="status-dot"></span>
+            <span id="statusText">正在檢查設定...</span>
+        </div>
+        <button class="load-btn" onclick="document.getElementById('fileInput').click()">手動讀取</button>
+        <input type="file" id="fileInput" accept=".json">
+    </div>
+
+    <div id="topZone" class="action-zone top-zone disabled">
+        <span id="topText">辨識並朗讀</span>
+    </div>
+
+    <div class="video-container">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <div id="flash" class="flash"></div>
+    </div>
+
+    <div id="bottomZone" class="action-zone bottom-zone">
+        <span id="bottomText">拍 照</span>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const flash = document.getElementById('flash');
+        const topZone = document.getElementById('topZone');
+        const topText = document.getElementById('topText');
+        const bottomZone = document.getElementById('bottomZone');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const fileInput = document.getElementById('fileInput');
+
+        let capturedImage = null;
+        let lastResponse = '';
+        let apiKey = localStorage.getItem('gemini_api_key') || '';
+        let needNewRecognition = false;
+        const modelName = 'gemini-2.5-flash';
+
+        // 初始化
+        window.addEventListener('load', () => {
+            initWebcam();
+            autoLoadConfig(); // 嘗試自動載入
+        });
+
+        // 核心邏輯：自動讀取設定檔
+        async function autoLoadConfig() {
+            // 1. 先看瀏覽器快取 (LocalStorage) 是否已經有 Key
+            if (apiKey) {
+                updateKeyStatus(true);
+                return;
+            }
+
+            // 2. 嘗試從當前目錄自動抓取 config.json (如果 html 與 json 放在一起)
+            try {
+                const response = await fetch('config.json');
+                if (response.ok) {
+                    const config = await response.json();
+                    if (config.apiKey) {
+                        saveKey(config.apiKey);
+                        updateKeyStatus(true, "自動載入成功");
+                        speak('已自動載入設定檔');
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.log("自動偵測 config.json 失敗 (正常現象)");
+            }
+
+            // 3. 如果都失敗，提示使用者
+            updateKeyStatus(false);
+            speak('請讀取設定檔');
+        }
+
+        function saveKey(key) {
+            apiKey = key;
+            localStorage.setItem('gemini_api_key', key);
+        }
+
+        function updateKeyStatus(hasKey, message) {
+            if (hasKey) {
+                statusDot.classList.add('active');
+                statusText.innerText = message || "API Key 已就緒";
+            } else {
+                statusDot.classList.remove('active');
+                statusText.innerText = "請讀取 config.json";
+            }
+        }
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const config = JSON.parse(event.target.result);
+                    if (config.apiKey) {
+                        saveKey(config.apiKey);
+                        updateKeyStatus(true, "載入成功");
+                        speak('設定檔載入成功');
+                    }
+                } catch (err) {
+                    speak('設定檔格式錯誤');
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function speak(text) {
+            if (!text) return;
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'zh-TW';
+            window.speechSynthesis.speak(utterance);
+        }
+
+        async function initWebcam() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' } 
+                });
+                video.srcObject = stream;
+            } catch (err) {
+                speak('相機啟動失敗');
+            }
+        }
+
+        bottomZone.addEventListener('click', () => {
+            flash.classList.add('active');
+            setTimeout(() => flash.classList.remove('active'), 100);
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            capturedImage = canvas.toDataURL('image/jpeg', 0.85);
+            needNewRecognition = true;
+            topZone.classList.remove('disabled');
+            topText.innerHTML = "辨識並朗讀";
+            speak('已拍照');
+        });
+
+        topZone.addEventListener('click', async () => {
+            if (!apiKey) { speak('請手動讀取設定檔'); return; }
+            if (!capturedImage) { speak('請先拍照'); return; }
+            if (!needNewRecognition && lastResponse) { speak(lastResponse); return; }
+            
+            topZone.classList.add('disabled');
+            topText.innerHTML = "分析中...";
+            speak('正在分析');
+
+            const base64Data = capturedImage.split(',')[1];
+            const payload = {
+                contents: [{
+                    parts: [
+                        { text: "這張圖片裡有什麼？請用繁體中文回答，簡短一兩句話。" },
+                        { inline_data: { mime_type: 'image/jpeg', data: base64Data } }
+                    ]
+                }]
+            };
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                lastResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '辨識不到內容';
+                needNewRecognition = false;
+                topText.innerHTML = "再次朗讀";
+                speak(lastResponse);
+            } catch (err) {
+                speak('連線失敗');
+                topText.innerHTML = "重試";
+            } finally {
+                topZone.classList.remove('disabled');
+            }
+        });
+    </script>
+</body>
+</html>
