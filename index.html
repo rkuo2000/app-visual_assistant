@@ -99,12 +99,6 @@
 </head>
 <body>
     <h1 style="text-align: center;">視覺助理</h1>
-	
-    <!-- API Key 輸入區 -->
-    <div class="api-key-container">
-        <input type="password" id="apiKey" placeholder="請在此輸入 Gemini API Key">
-        <a href="https://aistudio.google.com/api-keys" target="_blank" class="get-api-key-btn">獲取 Key</a>	
-    </div>
 
     <!-- 上方區域：辨識與朗讀 -->
     <div id="topZone" class="action-zone top-zone disabled">
@@ -139,6 +133,12 @@
         let needNewRecognition = false; // 判斷是否需要重新辨識
         const modelName = 'gemini-2.5-flash';
 
+        fetch('./config.json')
+          .then(response => response.json())
+          .then(data => console.log(data.apiKey))
+          .catch(error => console.error('Error:', error));		
+        apiKey = data.apiKey;
+		
         // 語音合成
         function speak(text) {
             if (!text) return;
@@ -161,11 +161,6 @@
                 bottomText.innerHTML = "相機啟動失敗";
             }
         }
-
-        // 監聽 API Key 輸入
-        apiKeyInput.addEventListener('input', (e) => {
-            apiKey = e.target.value.trim();
-        });
 
         // 下方區域點擊：拍照
         bottomZone.addEventListener('click', () => {
