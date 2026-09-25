@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>盲人AI助理</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #fileInput { display: none; }
+
+        .config-bar {
+            background: #0f0f23;
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .load-btn {
+            background: #444;
+            color: #ccc;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .status-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #ff4444;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .status-dot.active { background: #00ff00; }
+
+        .action-zone {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            transition: opacity 0.2s;
+            text-align: center;
+            line-height: 1.4;
+        }
+        .action-zone:active { opacity: 0.7; }
+        .action-zone.disabled { opacity: 0.5; pointer-events: none; }
+
+        .top-zone { background: #7c3aed; color: white; }
+
+        .video-container {
+            height: 40vh;
+            background: #000;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        video, canvas { width: 100%; height: 100%; object-fit: contain; }
+
+        .flash {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: white; opacity: 0; pointer-events: none;
+        }
+        .flash.active { opacity: 1; }
+
+        .bottom-zone {
+            background: #00d4ff;
+            color: #1a1a2e;
+            display: flex;
+            flex: 1;
+            gap: 14px;
+            padding: 14px;
+        }
+        .capture-button {
+            flex: 1;
+            border: 0;
+            border-radius: 18px;
+            background: rgba(255,255,255,0.88);
+            color: #1a1a2e;
+            font: inherit;
+            font-size: 26px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.15s, background 0.15s;
+        }
+        .capture-button:active { transform: scale(0.98); }
+        .capture-button.recording {
+            background: #ff4d6d;
+            color: white;
+            animation: pulse 1.2s infinite;
+        }
+        .capture-button:disabled { opacity: 0.55; cursor: not-allowed; animation: none; }
+        .result-text {
+            position: absolute;
+            left: 14px; right: 14px; bottom: 12px;
+            max-height: 34%;
+            overflow: auto;
+            padding: 10px 12px;
+            border-radius: 12px;
+            background: rgba(0,0,0,0.65);
+            color: white;
+            font-size: 15px;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            display: none;
+        }
+        .result-text.visible { display: block; }
+        @keyframes pulse { 50% { box-shadow: 0 0 0 8px rgba(255,77,109,0.22); } }
+    </style>
+</head>
+<body>
+    <div class="config-bar">
+        <div style="font-size: 12px;">
+            <span id="statusDot" class="status-dot"></span>
+            <span id="statusText">正在檢查設定...</span>
+        </div>
+        <button class="load-btn" onclick="document.getElementById('fileInput').click()">手動讀取</button>
+        <input type="file" id="fileInput" accept=".json">
+    </div>
+
+    <div id="topZone" class="action-zone top-zone disabled">
+        <span id="topText">辨識並朗讀</span>
+    </div>
+
+    <div class="video-container">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <div id="flash" class="flash"></div>
+        <div id="resultText" class="result-text"></div>
+    </div>
+
+    <div id="bottomZone" class="bottom-zone">
+        <button id="captureButton" class="capture-button" type="button">📷 拍照</button>
+        <button id="recordButton" class="capture-button" type="button">🎙️ 錄音</button>
+    </div>
+
+<script>
+const video = document.getElementById('video');
+const videoContainer = document.querySelector('.video-container');
+const canvas = document.getElementById('canvas');
+const flash = document.getElementById('flash');
+const topZone = document.getElementById('topZone');
+const topText = document.getElementById('topText');
+const captureButton = document.getElementById('captureButton');
+const recordButton = document.getElementById('recordButton');
+const resultText = document.getElementById('resultText');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const fileInput = document.getElementById('fileInput');
+
+let capturedImage = null;
+let recordedAudio = null;
+let lastResponse = '';
+let apiKey = '';
+try { apiKey = localStorage.getItem('gemini_api_key') || ''; } catch (err) { console.warn(err); }
+let cameraState = 'idle';
+let cameraAttempt = 0;
+let needNewRecognition = false;
+let inputMode = null;
+let mediaRecorder = null;
+let audioChunks = [];
+let activeUtterance = null;
+let speechActive = false;
+// 建議使用更穩定的模型版本路徑
+const modelName = 'gemini-2.5-flash'; 
+
+window.addEventListener('load', () => {
+    initWebcam();
+    autoLoadConfig();
+    speak("盲人助理已啟動");
+});
+
+async function autoLoadConfig() {
+    if (apiKey) {
+        updateKeyStatus(true);
+        return;
+    }
+    try {
+        const response = await fetch('config.json');
+        if (response.ok) {
+            const config = await response.json();
+            if (config.apiKey) {
+                saveKey(config.apiKey);
+                updateKeyStatus(true, "自動載入成功");
+                speak('已自動載入設定檔');
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to fetch config.json, use manual load');
+    }
+    updateKeyStatus(!!apiKey, apiKey ? "API Key 已就準" : "請點「手動讀取」載入 config.json 或直接讀取檔案");
+}
+
+function saveKey(key) {
+    apiKey = key;
+    try { localStorage.setItem('gemini_api_key', key); } catch (err) { console.warn(err); }
+}
+
+function updateKeyStatus(hasKey, message) {
+    if (hasKey) {
+        statusDot.classList.add('active');
+        statusText.innerText = message || "API Key 已就緒";
+    } else {
+        statusDot.classList.remove('active');
+        statusText.innerText = "請讀取 config.json";
+    }
+}
+
+fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        try {
+            const config = JSON.parse(event.target.result);
+            if (config.apiKey) {
+                saveKey(config.apiKey);
+                updateKeyStatus(true, "載入成功");
+                speak('設定檔載入成功');
+            }
+        } catch (err) {
+            speak('設定檔格式錯誤');
+        }
+    };
+    reader.readAsText(file);
+});
+
+function speak(text) {
+    if (!text || !window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
+    try {
+        window.speechSynthesis.cancel();
+        speechActive = false;
+        const utterance = new SpeechSynthesisUtterance(text);
+        activeUtterance = utterance;
+        utterance.lang = 'zh-TW';
+        utterance.onstart = () => {
+            if (activeUtterance === utterance) speechActive = true;
+        };
+        utterance.onend = utterance.onerror = () => {
+            if (activeUtterance === utterance) {
+                speechActive = false;
+                activeUtterance = null;
+            }
+        };
+        window.speechSynthesis.speak(utterance);
+    } catch (err) { console.warn('Speech unavailable:', err); }
+}
+
+function stopSpeaking() {
+    if (!speechActive && !window.speechSynthesis?.speaking && !window.speechSynthesis?.pending) return;
+    window.speechSynthesis.cancel();
+    speechActive = false;
+    activeUtterance = null;
+}
+
+// The captured image/video area is the large, easy-to-reach stop-speaking target.
+videoContainer.addEventListener('pointerup', stopSpeaking);
+
+function setCameraState(state, message) {
+    cameraState = state;
+    if (state === 'error' || state === 'starting') captureButton.textContent = `📷 ${message}`;
+    else if (state === 'ready' && !mediaRecorder) captureButton.textContent = '📷 拍照';
+}
+
+function showResult(text) {
+    resultText.textContent = text || '';
+    resultText.classList.toggle('visible', !!text);
+}
+
+async function initWebcam() {
+    if (cameraState === 'starting') return;
+    const attempt = ++cameraAttempt;
+    setCameraState('starting', '相機準備中，請允許相機權限');
+    let stream;
+    let timer;
+    let cancelFrameWait = () => {};
+    try {
+        if (!window.isSecureContext) {
+            throw new Error('請使用 HTTPS 或 localhost 開啟此頁面');
+        }
+        if (!navigator.mediaDevices?.getUserMedia) {
+            throw new Error('此瀏覽器不支援相機，請使用支援相機的瀏覽器');
+        }
+        const startup = async () => {
+            stream = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+            });
+            // A permission prompt can resolve after the startup timeout.
+            if (attempt !== cameraAttempt) {
+                stream.getTracks().forEach(track => track.stop());
+                return;
+            }
+            video.srcObject = stream;
+            video.muted = true;
+            await video.play();
+            if (attempt !== cameraAttempt) return;
+            if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+                await new Promise(resolve => {
+                    const checkFrame = () => {
+                        if (video.readyState >= 2 && video.videoWidth && video.videoHeight) {
+                            cancelFrameWait();
+                            resolve();
+                        }
+                    };
+                    const poll = setInterval(checkFrame, 100);
+                    cancelFrameWait = () => { clearInterval(poll); resolve(); };
+                    checkFrame();
+                });
+            }
+        };
+        await Promise.race([
+            startup(),
+            new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error('相機啟動逾時，請確認相機權限後點此重試')), 15000);
+            })
+        ]);
+        setCameraState('ready', '拍 照');
+    } catch (err) {
+        ++cameraAttempt;
+        if (stream) stream.getTracks().forEach(track => track.stop());
+        video.srcObject = null;
+        const messages = {
+            NotAllowedError: '相機權限或播放被封鎖，請允許相機後點此重試',
+            NotFoundError: '找不到相機，請連接相機後點此重試',
+            NotReadableError: '無法讀取相機，請關閉其他使用相機的程式後點此重試',
+            OverconstrainedError: '相機不支援所需設定，請換一台相機後點此重試'
+        };
+        const message = messages[err.name] || err.message || '相機啟動失敗，點此重試';
+        setCameraState('error', message);
+        console.error(err);
+        speak(message);
+    } finally {
+        clearTimeout(timer);
+        cancelFrameWait();
+    }
+}
+
+captureButton.addEventListener('click', () => {
+    if (mediaRecorder?.state === 'recording') {
+        speak('請先停止錄音');
+        return;
+    }
+    if (cameraState === 'starting') {
+        speak('請允許瀏覽器使用相機，或等待啟動結果');
+        return;
+    }
+    if (cameraState !== 'ready' || video.readyState < 2 ||
+        !video.videoWidth || !video.videoHeight ||
+        !video.srcObject?.active) {
+        if (video.srcObject) video.srcObject.getTracks().forEach(track => track.stop());
+        initWebcam();
+        return;
+    }
+
+    flash.classList.add('active');
+    setTimeout(() => flash.classList.remove('active'), 100);
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0);
+    
+    // 轉換成 Base64
+    capturedImage = canvas.toDataURL('image/jpeg', 0.8);
+    recordedAudio = null;
+    inputMode = 'image';
+    needNewRecognition = true;
+    topZone.classList.remove('disabled');
+    topText.innerHTML = "辨識並朗讀";
+    showResult('照片已準備好，按上方按鈕送出');
+    speak('已拍照');
+});
+
+recordButton.addEventListener('click', async () => {
+    if (mediaRecorder?.state === 'recording') {
+        mediaRecorder.stop();
+        return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+        speak('此瀏覽器不支援錄音');
+        return;
+    }
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = event => { if (event.data.size) audioChunks.push(event.data); };
+        mediaRecorder.onstop = () => {
+            const mimeType = (mediaRecorder.mimeType || 'audio/webm').split(';')[0];
+            recordedAudio = new Blob(audioChunks, { type: mimeType });
+            stream.getTracks().forEach(track => track.stop());
+            inputMode = 'audio';
+            capturedImage = null;
+            needNewRecognition = true;
+            topZone.classList.remove('disabled');
+            topText.textContent = '轉錄、回答並朗讀';
+            recordButton.classList.remove('recording');
+            recordButton.textContent = '🎙️ 重新錄音';
+            showResult('錄音已準備好，按上方按鈕送出');
+            speak('錄音完成');
+        };
+        mediaRecorder.start();
+        recordButton.classList.add('recording');
+        recordButton.textContent = '⏹️ 停止錄音';
+        showResult('正在錄音…');
+        speak('開始錄音');
+    } catch (err) {
+        console.error('Audio error:', err);
+        speak('無法使用麥克風，請允許麥克風權限');
+    }
+});
+
+topZone.addEventListener('click', async () => {
+    if (!apiKey) { speak('請先讀取設定檔'); return; }
+    if (mediaRecorder?.state === 'recording') { speak('請先停止錄音'); return; }
+    if (inputMode === 'audio' && !recordedAudio) { speak('請先錄音'); return; }
+    if (inputMode === 'image' && !capturedImage) { speak('請先拍照'); return; }
+    if (!inputMode) { speak('請先拍照或錄音'); return; }
+    if (!needNewRecognition && lastResponse) { speak(lastResponse); return; }
+    
+    topZone.classList.add('disabled');
+    topText.innerHTML = inputMode === 'audio' ? "轉錄與分析中..." : "分析中...";
+    speak(inputMode === 'audio' ? '正在轉錄與分析' : '正在分析');
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+    let mediaPart;
+    let prompt;
+    if (inputMode === 'image') {
+        mediaPart = { inline_data: { mime_type: 'image/jpeg', data: capturedImage.split(',')[1] } };
+        prompt = '請簡短回答這張照片的內容';
+    } else {
+        const audioBase64 = await blobToBase64(recordedAudio);
+        mediaPart = { inline_data: { mime_type: (recordedAudio.type || 'audio/webm').split(';')[0], data: audioBase64 } };
+        prompt = '請根據語音內容給出回答。';
+    }
+    const payload = { contents: [{ parts: [{ text: prompt }, mediaPart] }] };
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        
+        // 檢查 API 是否回傳錯誤訊息
+        if (data.error) {
+            console.error("API Error:", data.error);
+            throw new Error(data.error.message);
+        }
+
+        lastResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '辨識不到內容';
+        needNewRecognition = false;
+        topText.innerHTML = "再次朗讀";
+        showResult(lastResponse);
+        speak(lastResponse);
+    } catch (err) {
+        console.error("Fetch Error:", err);
+        speak('辨識失敗，請檢查網路或 API 金鑰');
+        topText.innerHTML = "重試";
+    } finally {
+        topZone.classList.remove('disabled');
+    }
+});
+
+function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+</script>
+</body>
+</html>
